@@ -1,4 +1,4 @@
-prs_nc
+sprCpp
 ======
 
-Codes for neurocentro signal processing (EEG, MRI). Matlab and C++.
+General codes for signal processing and recognition tasks.
