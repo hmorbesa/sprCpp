@@ -33,10 +33,8 @@ void mrNormalization< TImage>
 
   typename HistogramFilterType::HistogramType * histogram = histogramFilter->GetOutput();
   typename TImage::PixelType min,max;
-  min = histogram->Quantile(0,tu);
-  max = histogram->Quantile(0,tl);
-  //sc = 1/(x1-x0);
-  //sh = -x0;
+  min = histogram->Quantile(0,tl);
+  max = histogram->Quantile(0,tu);
 
   itk::ImageRegionConstIterator<TImage> itInput(input, input->GetLargestPossibleRegion());
   itk::ImageRegionIterator<TImage> itOutput(output, output->GetLargestPossibleRegion());
