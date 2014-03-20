@@ -98,7 +98,6 @@ int main( int argc, char *argv[] )
   unsigned int C;                                                   //Number of considered classes
   std::vector<LabelImageType::PixelType> L;                         //Label set: size(L) = C
   AtlasType::Pointer mu = AtlasType::New();                         //Conditional: P(x|c) = exp(-(x-mu_c)^2/s_c^2)
-  AtlasType::Pointer sw = AtlasType::New();                         //Temporal variable
   AtlasType::Pointer m2 = AtlasType::New();                         //Temporal variable
   AtlasType::Pointer Pr = AtlasType::New();                         //Priors: P(c)
   IntensityImageType::Pointer tpt = IntensityImageType::New();      // Template image: intensity dataset average
@@ -129,9 +128,11 @@ int main( int argc, char *argv[] )
   std::string imgName;
   std::string lblName;
   bool configAtlas = true;
+
   while (getline(file2, imgName, '\n') && getline(file3, lblName, '\n'))
   {
-    std::cout << ++N << std::endl << imgName << std::endl << lblName << std::endl;
+    ++N;
+    //std::cout << ++N << std::endl;
 
     imgReader->SetFileName( imgName );
     lblReader->SetFileName( lblName );
@@ -154,11 +155,16 @@ int main( int argc, char *argv[] )
 
     if(configAtlas)
     {
-      CreateAtlas(Pr, imgReader->GetOutput(), C);
-      CreateAtlas(sw, imgReader->GetOutput(), C);
+      CreateAtlas(Pr, imgReader->GetOutput(), C);      
       CreateAtlas(m2, imgReader->GetOutput(), C);
       CreateAtlas(mu, imgReader->GetOutput(), C);
       CreateImage(tpt, imgReader->GetOutput());
+
+      IntensityImageWriterType::Pointer imgWriter1 = IntensityImageWriterType::New();
+      imgWriter1->SetInput(imgReader->GetOutput());
+      imgWriter1->SetFileName("img.nii");
+      imgWriter1->Update();
+
 
       configAtlas = false;
     }
@@ -169,56 +175,50 @@ int main( int argc, char *argv[] )
     ConstLabelIteratorType      itLbl(lblReader->GetOutput(),lblReader->GetOutput()->GetLargestPossibleRegion());
     AtlasIteratorType           itPr(Pr,Pr->GetLargestPossibleRegion());
     AtlasIteratorType           itMu(mu,mu->GetLargestPossibleRegion());
-    AtlasIteratorType           itSw(sw,sw->GetLargestPossibleRegion());
     AtlasIteratorType           itM2(m2,m2->GetLargestPossibleRegion());
 
-    for( itM2.GoToBegin(), itSw.GoToBegin(), itMu.GoToBegin(),
+    for( itM2.GoToBegin(), itMu.GoToBegin(),
            itPr.GoToBegin(), itLbl.GoToBegin(), itTpt.GoToBegin(), itImg.GoToBegin();
          !itImg.IsAtEnd();
-         itM2, ++itSw, ++itMu, ++itPr, ++itLbl, ++itTpt, ++itImg )
+         ++itM2, ++itMu, ++itPr, ++itLbl, ++itTpt, ++itImg )
     {
-      IntensityImageType::InternalPixelType sI  = itImg.Get();
+      IntensityImageType::InternalPixelType x   = itImg.Get();
       LabelImageType::InternalPixelType     c   = itLbl.Get();
       AtlasType::PixelType                  sPr = itPr.Get();
-      AtlasType::PixelType                  sMu = itMu.Get();
-      AtlasType::PixelType                  sSw = itSw.Get();
+      AtlasType::PixelType                  sMu = itMu.Get();      
       AtlasType::PixelType                  sM2 = itM2.Get();
 
-      AtlasType::InternalPixelType tmp   = 1 + sSw[c];
-      AtlasType::InternalPixelType delta = sI - sMu[c];
-      AtlasType::InternalPixelType r     = delta/tmp;
-      sMu[c] += r;
-      sM2[c] += sSw[c]*delta*r;
-      sSw[c]  = tmp;
-
-      itTpt.Set( itTpt.Get() + sI ); //Updating the template
       sPr[c]++;
+
+      double delta = x - sMu[c];
+      sMu[c] += delta/sPr[c];
+      sM2[c] += delta*(x - sMu[c]);
+
+      itTpt.Set( itTpt.Get() + x );  //Updating the template
+
       itPr.Set( sPr );               //Updating the priors
-      itMu.Set( sMu );               //Updating the means
-      itSw.Set( sSw );               //Updating temporal variables
+      itMu.Set( sMu );               //Updating the means      
       itM2.Set( sM2 );               //Updating temporal variables
     }
   }
   file2.close();
   file3.close();
 
-
 //Last iteration to finally compute priors and var
   IntensityIteratorType       itTpt(tpt,tpt->GetLargestPossibleRegion());
-  AtlasIteratorType           itPr(Pr,Pr->GetLargestPossibleRegion());
-  AtlasIteratorType           itSw(sw,sw->GetLargestPossibleRegion());
+  AtlasIteratorType           itPr(Pr,Pr->GetLargestPossibleRegion());  
   AtlasIteratorType           itM2(m2,m2->GetLargestPossibleRegion());
-  for( itTpt.GoToBegin(), itM2.GoToBegin(), itSw.GoToBegin(), itPr.GoToBegin(); !itPr.IsAtEnd();
-       ++itTpt, ++itM2, ++itSw, ++itPr )
+  for( itTpt.GoToBegin(), itM2.GoToBegin(), itPr.GoToBegin(); !itPr.IsAtEnd();
+       ++itTpt, ++itM2, ++itPr )
   {
-    AtlasType::PixelType                  sPr = itPr.Get();
-    AtlasType::PixelType                  sSw = itSw.Get();
+    AtlasType::PixelType                  sPr = itPr.Get();    
     AtlasType::PixelType                  sM2 = itM2.Get();
     itTpt.Set( itTpt.Get()/N );
     for(unsigned int c=0; c<C; c++)
-    {
+    {      
+      if (sPr[c]>1)
+        sM2[c] = sM2[c]/(sPr[c]-1);
       sPr[c] = sPr[c]/N;
-      sM2[c] = sM2[c]/sSw[c]*N/(N-1);
     }
     itPr.Set( sPr );
     itM2.Set( sM2 );
